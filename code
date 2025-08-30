@@ -1,0 +1,110 @@
+# ==============================
+# Step 0: Setup
+# ==============================
+import pandas as pd
+import numpy as np
+import statsmodels.formula.api as smf
+import seaborn as sns
+import matplotlib.pyplot as plt
+
+# Load dataset
+df = pd.read_excel("Coffee Shop Sales.xlsx", sheet_name="Transactions")
+
+# ==============================
+# Step 1: Feature Engineering
+# ==============================
+
+# Extract time-based features
+df["hour"] = pd.to_datetime(df["transaction_time"]).dt.hour
+df["weekday"] = pd.to_datetime(df["transaction_date"]).dt.day_name()
+
+# Log transforms for elasticity analysis
+df["log_qty"] = np.log1p(df["transaction_qty"])   # log(1+Q) to handle zero sales
+df["log_price"] = np.log(df["unit_price"])
+
+# Dummy for bakery transactions (for complement analysis)
+df["bakery_dummy"] = (df["product_category"] == "Bakery").astype(int)
+
+# ==============================
+# Step 2: Price Elasticity Model
+# ==============================
+
+# Log-log regression: demand vs price
+model_elasticity = smf.ols("log_qty ~ log_price", data=df).fit()
+print("\n=== Demand Elasticity Model ===")
+print(model_elasticity.summary())
+
+# Interpretation:
+# Coefficient of log_price = price elasticity of demand (should be negative).
+
+# ==============================
+# Step 3: Complement/Substitute Effects
+# ==============================
+
+# Focus on coffee transactions
+coffee_df = df[df["product_category"] == "Coffee"]
+
+# Coffee demand with bakery dummy
+model_complements = smf.ols("log_qty ~ log_price + bakery_dummy", data=coffee_df).fit()
+print("\n=== Coffee & Bakery Complement/Substitute Model ===")
+print(model_complements.summary())
+
+# Interpretation:
+# If bakery_dummy > 0 → bakery purchases increase coffee demand (complements).
+# If bakery_dummy < 0 → bakery items substitute coffee.
+
+# ==============================
+# Step 4: Temporal Demand Patterns
+# ==============================
+
+# Regression with hour-of-day and weekday effects
+model_time = smf.ols("log_qty ~ log_price + C(hour) + C(weekday)", data=df).fit()
+print("\n=== Temporal Demand Model ===")
+print(model_time.summary())
+
+# Interpretation:
+# Significant morning coefficients → coffee as a time-constrained good.
+# Weekday/weekend effects capture lifestyle preferences.
+
+# ==============================
+# Step 5: Market Segmentation by Location
+# ==============================
+
+model_location = smf.ols("log_qty ~ log_price + C(store_location)", data=df).fit()
+print("\n=== Location Segmentation Model ===")
+print(model_location.summary())
+
+# Interpretation:
+# Different intercepts by store_location show heterogeneous demand across markets.
+
+# ==============================
+# Step 6: Visualization
+# ==============================
+
+# Demand curve approximation (Price vs Quantity)
+plt.figure(figsize=(7,5))
+sns.scatterplot(x="unit_price", y="transaction_qty", data=df, alpha=0.3)
+plt.title("Price vs Quantity – Demand Curve Approximation")
+plt.xlabel("Unit Price")
+plt.ylabel("Quantity Sold")
+plt.show()
+
+# Average sales by hour
+hourly_sales = df.groupby("hour")["transaction_qty"].mean().reset_index()
+plt.figure(figsize=(7,5))
+sns.lineplot(x="hour", y="transaction_qty", data=hourly_sales)
+plt.title("Average Quantity Sold by Hour of Day")
+plt.xlabel("Hour of Day")
+plt.ylabel("Average Quantity")
+plt.show()
+
+# Average sales by weekday
+weekday_sales = df.groupby("weekday")["transaction_qty"].mean().reset_index()
+plt.figure(figsize=(7,5))
+sns.barplot(x="weekday", y="transaction_qty", data=weekday_sales,
+            order=["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"])
+plt.title("Average Quantity Sold by Weekday")
+plt.xlabel("Weekday")
+plt.ylabel("Average Quantity")
+plt.xticks(rotation=45)
+plt.show()
